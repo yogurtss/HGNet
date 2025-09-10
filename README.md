@@ -92,6 +92,14 @@ The expected data format is JSON with the following structure:
 
 ## Usage
 
+### Z-NERD Tagger
+
+Run the NER pipeline:
+
+```bash
+python z-nerd.py --data_dir /path/to/scierc/
+```
+
 ### Hierarchical Graph Neural Network
 
 Run the complete relation extraction pipeline:
@@ -115,13 +123,7 @@ Key arguments:
 - `--use_separation_loss`: Prevent hierarchy shortcuts
 - `--caf_loss_weight`, `--acyclic_loss_weight`, `--separation_loss_weight`: Loss term weights
 
-### Z-NERD Tagger
 
-Run the NER pipeline:
-
-```bash
-python z_nerd_tagger.py --data_dir /path/to/scierc/
-```
 
 The model will automatically:
 1. Convert SciERC format to NER format
