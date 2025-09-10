@@ -1,4 +1,4 @@
-# Scientific Named Entity Recognition with Hierarchical Graph Neural Networks and Z-NERD
+# Scalable Foundation Model for Automated Knowledge Graph Generation From Scientific Text
 
 ## Overview
 
@@ -10,7 +10,9 @@ This repository contains two advanced neural architectures for scientific named 
 Both models are designed specifically for processing scientific literature, with particular focus on the SciERC dataset for entity recognition and relation classification tasks.
 
 ## Frameworks
+### Z-NERD
 ![https://raw.githubusercontent.com/basiralab/HA-GNN/blob/main/Z-NERD.png](https://github.com/basiralab/HA-GNN/blob/main/Z-NERD.png)
+### HA-GNN
 ![https://raw.githubusercontent.com/basiralab/HA-GNN/blob/main/HA-GNN.png](https://github.com/basiralab/HA-GNN/blob/main/HA-GNN.png)
 
 
