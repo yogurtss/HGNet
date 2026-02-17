@@ -8,9 +8,11 @@ from torch.optim import AdamW
 import json
 from tqdm import tqdm
 from sklearn.metrics import classification_report
+from seqeval.metrics import classification_report as span_classification_report
+from seqeval.metrics import f1_score as span_f1_score
 import numpy as np
 import matplotlib.pyplot as plt
-import argparse # Added for command-line arguments
+import argparse
 import pandas as pd
 import math
 
@@ -26,6 +28,14 @@ os.environ['TRANSFORMERS_CACHE'] = os.path.join(CACHE_DIR, 'huggingface', 'model
 # ======================================================================================
 # SECTION 0: CONFIGURATION
 # ======================================================================================
+import random
+SEED = 42
+torch.manual_seed(SEED)
+np.random.seed(SEED)
+random.seed(SEED)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(SEED)
+
 MODEL_NAME = "allenai/scibert_scivocab_uncased"
 FINAL_MODEL_SAVE_PATH = "z_nerd_tagger_scierc_model.pth"
 PLOT_SAVE_PATH = "divergent_vector_norms_plot_scierc.png"
@@ -33,8 +43,8 @@ PICKLE_SAVE_PATH = "divergent_vector_norms_data_scierc.pkl"
 
 # --- Training Hyperparameters ---
 EPOCHS = 10
-LEARNING_RATE = 3e-5
-MAX_LEN = 256 # Increased for potentially longer scientific sentences
+LEARNING_RATE = 2e-5
+MAX_LEN = 512  # Paper Table 5: max_len=512
 BATCH_SIZE = 16
 
 # ======================================================================================
@@ -336,7 +346,12 @@ class CustomNERDataset(Dataset):
 # SECTION 3: TRAINING & EVALUATION
 # ======================================================================================
 def train_and_evaluate(model, train_loader, val_loader, test_loader, id_to_tag, concept_types):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
     print(f"Using device: {device}")
     model.to(device)
     optimizer = AdamW(model.parameters(), lr=LEARNING_RATE)
@@ -467,7 +482,13 @@ def train_and_evaluate(model, train_loader, val_loader, test_loader, id_to_tag, 
 
 
 def evaluate(model, data_loader, id_to_tag, device, is_final_test=False):
-    model.eval(); all_preds, all_labels = [], []
+    """
+    Span-level evaluation using seqeval (micro-F1).
+    A predicted entity is correct only if its span boundaries AND type match exactly.
+    This matches the evaluation protocol described in the paper.
+    """
+    model.eval()
+    all_true_sequences, all_pred_sequences = [], []
     desc = "Final Test Evaluation" if is_final_test else "Validation"
     with torch.no_grad():
         for batch in tqdm(data_loader, desc=desc, leave=False):
@@ -479,10 +500,16 @@ def evaluate(model, data_loader, id_to_tag, device, is_final_test=False):
                 active_mask = labels[i] != -100
                 true_labels = labels[i][active_mask]
                 pred_labels = preds[i][active_mask]
-                all_labels.extend([id_to_tag.get(l.item(), 'O') for l in true_labels])
-                all_preds.extend([id_to_tag.get(p.item(), 'O') for p in pred_labels])
-    entity_tags = [tag for tag in id_to_tag.values() if tag != 'O']
-    return classification_report(all_labels, all_preds, labels=entity_tags, output_dict=True, zero_division=0)
+                # Build per-sentence tag sequences for seqeval
+                true_seq = [id_to_tag.get(l.item(), 'O') for l in true_labels]
+                pred_seq = [id_to_tag.get(p.item(), 'O') for p in pred_labels]
+                all_true_sequences.append(true_seq)
+                all_pred_sequences.append(pred_seq)
+    # seqeval computes span-level metrics (exact boundary + type match)
+    report = span_classification_report(all_true_sequences, all_pred_sequences, output_dict=True, zero_division=0)
+    if is_final_test:
+        print(span_classification_report(all_true_sequences, all_pred_sequences, zero_division=0))
+    return report
 
 # ======================================================================================
 # SECTION 4: MAIN EXECUTION BLOCK

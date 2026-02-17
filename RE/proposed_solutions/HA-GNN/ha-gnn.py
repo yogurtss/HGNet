@@ -91,8 +91,11 @@ def calculate_acyclic_loss(A_parent, num_entities):
 def calculate_caf_loss(entity_reps, pair_indices, labels, relation_map, w_abs, caf_gamma=1.0, caf_delta=1.0):
     """
     Continuum Abstraction Field Loss with three components:
-    1. Pairwise Ranking Loss
-    2. Field Anchoring Loss  
+    1. Pairwise Ranking Loss (Eq 9)
+    2. Field Anchoring Loss (Eq 10)
+
+    w_abs is unit-normalized per Definition A.1 in the paper:
+    "learnable unit vector w_abs ∈ R^d defining the abstraction direction"
     """
     part_of_idx = relation_map.get("Part-Of")
     if part_of_idx is None:
@@ -106,44 +109,47 @@ def calculate_caf_loss(entity_reps, pair_indices, labels, relation_map, w_abs, c
     part_of_pairs = pair_indices[true_part_of_mask]
     if len(part_of_pairs) == 0:
         return torch.tensor(0.0, device=entity_reps.device)
-    
+
+    # Unit-normalize w_abs (Definition A.1: learnable unit vector)
+    w_abs_norm = F.normalize(w_abs, dim=0)
+
     try:
-        # 1. Pairwise Ranking Loss
+        # 1. Pairwise Ranking Loss (Eq 9)
         h_c = entity_reps[part_of_pairs[:, 0]]  # children (heads in Part-Of)
         h_p = entity_reps[part_of_pairs[:, 1]]  # parents (tails in Part-Of)
-        
-        score_diff = torch.matmul(h_c - h_p, w_abs)  
+
+        score_diff = torch.matmul(h_c - h_p, w_abs_norm)
         l_ranking = torch.mean(F.relu(score_diff + caf_delta))
-        
-        # 2. Field Anchoring Loss
+
+        # 2. Field Anchoring Loss (Eq 10)
         G = nx.DiGraph(part_of_pairs.cpu().numpy().tolist())
         all_nodes = list(G.nodes())
-        
+
         if len(all_nodes) == 0:
             return torch.tensor(0.0, device=entity_reps.device)
-        
+
         roots = [n for n in all_nodes if G.in_degree(n) == 0]
         leaves = [n for n in all_nodes if G.out_degree(n) == 0]
-        
+
         l_anchor = torch.tensor(0.0, device=entity_reps.device)
-        
+
         if roots and len(roots) < entity_reps.size(0):
             root_reps = entity_reps[torch.tensor(roots, device=entity_reps.device)]
-            root_scores = torch.matmul(root_reps, w_abs)
+            root_scores = torch.matmul(root_reps, w_abs_norm)
             l_anchor += torch.mean((root_scores - 1.0) ** 2)
-        
+
         if leaves and len(leaves) < entity_reps.size(0):
             leaf_reps = entity_reps[torch.tensor(leaves, device=entity_reps.device)]
-            leaf_scores = torch.matmul(leaf_reps, w_abs)
+            leaf_scores = torch.matmul(leaf_reps, w_abs_norm)
             l_anchor += torch.mean((leaf_scores - 0.0) ** 2)
-        
+
         caf_loss = l_ranking + (caf_gamma * l_anchor)
-        
+
         if torch.isnan(caf_loss) or torch.isinf(caf_loss):
             return torch.tensor(0.0, device=entity_reps.device)
-            
+
         return caf_loss
-            
+
     except Exception as e:
         return torch.tensor(0.0, device=entity_reps.device)
 
@@ -374,7 +380,7 @@ class HierarchicalProbabilisticMessagePassing(nn.Module):
         return updated_reps
 
 class HA_GNN(nn.Module):
-    def __init__(self, model_name, hidden_dim, num_entity_types, num_relations, num_layers=2, dropout=0.5, cache_dir='./', use_caf_loss=False):
+    def __init__(self, model_name, hidden_dim, num_entity_types, num_relations, num_layers=3, dropout=0.2, cache_dir='./', use_caf_loss=False):
         super().__init__()
         self.encoder = AutoModel.from_pretrained(model_name, cache_dir=cache_dir)
         encoder_dim = self.encoder.config.hidden_size
@@ -401,7 +407,8 @@ class HA_GNN(nn.Module):
         self.final_type_emb = nn.Embedding(num_entity_types, self.type_emb_dim)
         self.distance_emb = nn.Embedding(self.num_dist_bins, self.dist_emb_dim)
 
-        classifier_input_dim = (self.hidden_dim * 2) + self.hidden_dim + self.hidden_dim + (self.type_emb_dim * 2) + self.dist_emb_dim + self.num_nlp_cues
+        # head_reps(hidden) + tail_reps(hidden) + sdp_features(hidden) + type_embs(2*type) + dist_emb + nlp_cues
+        classifier_input_dim = (self.hidden_dim * 3) + (self.type_emb_dim * 2) + self.dist_emb_dim + self.num_nlp_cues
         self.relation_classifier = nn.Sequential(
             nn.Linear(classifier_input_dim, self.hidden_dim),
             nn.ReLU(),
@@ -540,7 +547,7 @@ class HA_GNN(nn.Module):
         return logits, pair_indices, updated_entity_reps, P_uv
 
 # --- Training Loop ---
-def train_and_eval(model, dataloader, entity_map, relation_map, tokenizer, device, optimizer=None, criterion=None, scheduler=None, acyclic_loss_weight=0.0, caf_gamma=1.0, caf_delta=1.0, caf_loss_weight=0.0, separation_loss_weight=0.0):
+def train_and_eval(model, dataloader, entity_map, relation_map, tokenizer, device, optimizer=None, criterion=None, scheduler=None, acyclic_loss_weight=0.0, caf_gamma=1.0, caf_delta=1.0, caf_loss_weight=0.0, separation_loss_weight=0.0, grad_accum_steps=1):
     is_training = optimizer is not None
     model.train() if is_training else model.eval()
     total_loss, all_preds, all_labels = 0, [], []
@@ -549,9 +556,13 @@ def train_and_eval(model, dataloader, entity_map, relation_map, tokenizer, devic
 
     rev_relation_map = {v: k for k, v in relation_map.items()}
 
+    # Gradient accumulation: zero gradients at the start, then every grad_accum_steps
+    if is_training:
+        optimizer.zero_grad()
+    accum_step = 0
+
     iterable = tqdm(dataloader, desc=desc, leave=False)
     for doc in iterable:
-        if is_training: optimizer.zero_grad()
         try:
             graph = build_graph_from_doc(doc, entity_map)
             if graph.num_nodes == 0 or 'entity' not in graph.node_types or graph['entity'].num_nodes < 2: continue
@@ -607,27 +618,41 @@ def train_and_eval(model, dataloader, entity_map, relation_map, tokenizer, devic
                     separation_loss = calculate_hierarchical_separation_loss(A_parent, num_entities)
 
                 if caf_loss_weight > 0 and model.w_abs is not None:
-                    caf_loss = calculate_caf_loss(entity_reps, pair_indices, labels, relation_map, model.w_abs.detach().clone(), caf_gamma, caf_delta)
+                    caf_loss = calculate_caf_loss(entity_reps, pair_indices, labels, relation_map, model.w_abs, caf_gamma, caf_delta)
                 
                 loss = classification_loss + (acyclic_loss_weight * acyclic_loss) + (caf_loss_weight * caf_loss) + (separation_loss_weight * separation_loss)
-                
+
                 if torch.isnan(loss) or torch.isinf(loss): continue
-                
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                optimizer.step()
-                scheduler.step()
-                
+
+                # Scale loss by accumulation steps for correct gradient averaging
+                scaled_loss = loss / grad_accum_steps
+                scaled_loss.backward()
+                accum_step += 1
+
+                # Step optimizer every grad_accum_steps (effective batch size)
+                if accum_step % grad_accum_steps == 0:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                    optimizer.step()
+                    scheduler.step()
+                    optimizer.zero_grad()
+
                 total_loss += loss.item()
                 total_acyclic_loss += acyclic_loss.item()
                 total_caf_loss += caf_loss.item()
                 total_separation_loss += separation_loss.item()
-                
+
                 iterable.set_postfix(cls_loss=f"{classification_loss.item():.4f}", acy_loss=f"{acyclic_loss.item():.4f}", sep_loss=f"{separation_loss.item():.4f}", caf_loss=f"{caf_loss.item():.4f}")
             else:
                 all_preds.extend(torch.argmax(logits, dim=1).cpu().numpy())
                 all_labels.extend(labels.cpu().numpy())
     
+    # Flush remaining accumulated gradients at end of epoch
+    if is_training and accum_step % grad_accum_steps != 0:
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        optimizer.step()
+        scheduler.step()
+        optimizer.zero_grad()
+
     if is_training:
         avg_loss = total_loss / (len(iterable) + 1e-9)
         avg_acyclic_loss = total_acyclic_loss / (len(iterable) + 1e-9)
@@ -643,13 +668,14 @@ def train_and_eval(model, dataloader, entity_map, relation_map, tokenizer, devic
 
     positive_labels = sorted([i for i in relation_map.values() if i != no_rel_idx])
     p_per_class, r_per_class, f1_per_class, _ = precision_recall_fscore_support(filtered_labels, filtered_preds, average=None, zero_division=0, labels=positive_labels)
-    p_macro, r_macro, f1_macro, _ = precision_recall_fscore_support(filtered_labels, filtered_preds, average='macro', zero_division=0, labels=positive_labels)
+    # Rel+ F1: micro-averaged F1 over positive relation classes (Zhong & Chen, 2021)
+    p_micro, r_micro, f1_micro, _ = precision_recall_fscore_support(filtered_labels, filtered_preds, average='micro', zero_division=0, labels=positive_labels)
     acc = np.mean(np.array(filtered_preds) == np.array(filtered_labels)) if filtered_labels else 0.0
-    
+
     f1_per_class_dict = {label: f1 for label, f1 in zip(positive_labels, f1_per_class)}
-    pr_stats = [{'Relation Type': rev_relation_map.get(label_idx, "Unknown"), 'Precision': f"{p:.4f}", 'Recall': f"{r:.4f}", 'F1-Score': f"{f1:.4f}"}  
+    pr_stats = [{'Relation Type': rev_relation_map.get(label_idx, "Unknown"), 'Precision': f"{p:.4f}", 'Recall': f"{r:.4f}", 'F1-Score': f"{f1:.4f}"}
                 for label_idx, p, r, f1 in zip(positive_labels, p_per_class, r_per_class, f1_per_class)]
-    return p_macro, r_macro, f1_macro, acc, f1_per_class_dict, pr_stats
+    return p_micro, r_micro, f1_micro, acc, f1_per_class_dict, pr_stats
 
 def plot_abstraction_field(model, dataset, entity_map, relation_map, tokenizer, device, num_samples=10):
     model.eval()
@@ -672,7 +698,8 @@ def plot_abstraction_field(model, dataset, entity_map, relation_map, tokenizer, 
             logits, _, entity_reps, _ = model(graph, token_inputs, relation_map)
             
             if model.use_caf_loss and model.w_abs is not None:
-                abstraction_scores = torch.matmul(entity_reps, model.w_abs.detach().clone().unsqueeze(-1)).squeeze(-1).cpu().numpy()
+                w_abs_norm = F.normalize(model.w_abs.detach().clone(), dim=0)
+                abstraction_scores = torch.matmul(entity_reps, w_abs_norm.unsqueeze(-1)).squeeze(-1).cpu().numpy()
                 entity_reps_list.append(entity_reps.cpu().numpy())
                 entity_texts_list.extend(graph.entity_texts)
                 abstraction_scores_list.extend(abstraction_scores)
@@ -741,25 +768,34 @@ if __name__ == '__main__':
     parser.add_argument('--test_file', type=str, default='test.json', help='Test data file')
     parser.add_argument('--model_name', type=str, default='allenai/scibert_scivocab_uncased', help='Pre-trained transformer')
     parser.add_argument('--hidden_dim', type=int, default=256, help='GNN hidden dimension')
+    parser.add_argument('--num_layers', type=int, default=3, help='Number of GNN layers (Paper Table 5: 3)')
+    parser.add_argument('--dropout', type=float, default=0.2, help='Dropout rate (Paper Table 5: 0.2)')
     parser.add_argument('--epochs', type=int, default=10, help='Training epochs')
-    parser.add_argument('--lr', type=float, default=2e-5, help='Learning rate')
+    parser.add_argument('--lr', type=float, default=1e-5, help='Learning rate (Paper Table 5: 1e-5)')
     parser.add_argument('--cache_dir', type=str, default='./model_cache', help='Cache directory for transformers')
     parser.add_argument('--gamma', type=float, default=2.0, help='Gamma parameter for Focal Loss')
     parser.add_argument('--use_acyclic_loss', action='store_true', help='Enable acyclic loss for Part-Of relations')
     parser.add_argument('--acyclic_loss_weight', type=float, default=0.0, help='Weight for acyclic loss')
     parser.add_argument('--use_caf_loss', action='store_true', help='Enable CAF loss')
     parser.add_argument('--caf_gamma', type=float, default=1.0, help='Gamma for CAF anchor loss')
-    parser.add_argument('--caf_delta', type=float, default=1.0, help='Margin for CAF ranking loss')
+    parser.add_argument('--caf_delta', type=float, default=0.5, help='Margin for CAF ranking loss (Paper Table 5: 0.5)')
     parser.add_argument('--caf_loss_weight', type=float, default=0.0, help='Weight for CAF loss')
     parser.add_argument('--use_separation_loss', action='store_true', help='Enable hierarchical separation loss')
     parser.add_argument('--separation_loss_weight', type=float, default=0.0, help='Weight for separation loss')
+    parser.add_argument('--grad_accum_steps', type=int, default=8, help='Gradient accumulation steps (Paper Table 5: effective batch=8)')
     args = parser.parse_args()
 
-    if args.use_acyclic_loss and args.acyclic_loss_weight == 0.0: args.acyclic_loss_weight = 0.1
-    if args.use_caf_loss and args.caf_loss_weight == 0.0: args.caf_loss_weight = 0.1
-    if args.use_separation_loss and args.separation_loss_weight == 0.0: args.separation_loss_weight = 0.05
+    # Paper Table 5: DHL weights (λ_acyclic=1.0, λ_separation=0.1), CAF weights (γ=1.0, λ_caf=0.5)
+    if args.use_acyclic_loss and args.acyclic_loss_weight == 0.0: args.acyclic_loss_weight = 1.0
+    if args.use_caf_loss and args.caf_loss_weight == 0.0: args.caf_loss_weight = 0.5
+    if args.use_separation_loss and args.separation_loss_weight == 0.0: args.separation_loss_weight = 0.1
     
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    if torch.cuda.is_available():
+        device = torch.device('cuda')
+    elif torch.backends.mps.is_available():
+        device = torch.device('mps')
+    else:
+        device = torch.device('cpu')
     print(f"Using device: {device}")
     os.makedirs(args.cache_dir, exist_ok=True)
     train_path, dev_path, test_path = os.path.join(args.data_dir, args.train_file), os.path.join(args.data_dir, args.dev_file), os.path.join(args.data_dir, args.test_file)
@@ -781,7 +817,8 @@ if __name__ == '__main__':
     print("Initializing model with hierarchical losses...")
     model = HA_GNN(
         model_name=args.model_name, hidden_dim=args.hidden_dim, num_entity_types=len(entity_map),
-        num_relations=len(relation_map), cache_dir=args.cache_dir, use_caf_loss=(args.caf_loss_weight > 0)
+        num_relations=len(relation_map), num_layers=args.num_layers, dropout=args.dropout,
+        cache_dir=args.cache_dir, use_caf_loss=(args.caf_loss_weight > 0)
     ).to(device)
     
     print("Calculating class weights for Focal Loss...")
@@ -790,44 +827,63 @@ if __name__ == '__main__':
     print(f"Using Focal Loss with gamma={args.gamma}")
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
-    num_training_steps = args.epochs * len(train_dataset)
+    # With gradient accumulation, optimizer steps = ceil(num_docs / accum_steps) per epoch
+    import math
+    steps_per_epoch = math.ceil(len(train_dataset) / args.grad_accum_steps)
+    num_training_steps = args.epochs * steps_per_epoch
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=int(0.1*num_training_steps), num_training_steps=num_training_steps)
+
+    best_model_path = os.path.join(args.cache_dir, "ha_gnn_best_model.pth")
+    best_dev_f1 = -1.0
 
     print(f"\nStarting training with:")
     print(f"  Acyclic loss weight: {args.acyclic_loss_weight}")
     print(f"  Separation loss weight: {args.separation_loss_weight}")
     print(f"  CAF loss weight: {args.caf_loss_weight}")
+    print(f"  Gradient accumulation steps: {args.grad_accum_steps} (effective batch size)")
     print("="*60)
 
     for epoch in range(args.epochs):
         train_loss = train_and_eval(
-            model, train_dataset, entity_map, relation_map, tokenizer, device, 
+            model, train_dataset, entity_map, relation_map, tokenizer, device,
             optimizer=optimizer, criterion=criterion, scheduler=scheduler,
             acyclic_loss_weight=args.acyclic_loss_weight,
             caf_gamma=args.caf_gamma, caf_delta=args.caf_delta, caf_loss_weight=args.caf_loss_weight,
-            separation_loss_weight=args.separation_loss_weight
+            separation_loss_weight=args.separation_loss_weight,
+            grad_accum_steps=args.grad_accum_steps
         )
         print(f"\nEpoch {epoch+1}/{args.epochs} - Training Loss: {train_loss:.4f}")
-        
+
         with torch.no_grad():
             print("\n--- Evaluating on Dev Set ---")
             if dev_dataset:
                 p, r, f1, acc, _, pr_stats = train_and_eval(model, dev_dataset, entity_map, relation_map, tokenizer, device, separation_loss_weight=args.separation_loss_weight)
-                print(f"Dev Set --> Macro-F1: {f1:.4f}, P: {p:.4f}, R: {r:.4f}, Acc on Positives: {acc:.4f}")
+                print(f"Dev Set --> Rel+ Micro-F1: {f1:.4f}, P: {p:.4f}, R: {r:.4f}, Acc on Positives: {acc:.4f}")
                 df = pd.DataFrame(pr_stats)
                 print("\n--- Precision, Recall, and F1-Scores per Relation Type (Dev Set) ---")
                 print(df.to_string(index=False) if not df.empty else "No positive relations to report on.")
+
+                # Model checkpointing: save best model
+                if f1 > best_dev_f1:
+                    best_dev_f1 = f1
+                    torch.save(model.state_dict(), best_model_path)
+                    print(f"✅ New best model saved with Rel+ F1: {best_dev_f1:.4f} to {best_model_path}")
         print("-" * 60)
-    
+
+    # Load best model for final evaluation
+    if os.path.exists(best_model_path):
+        print(f"\nLoading best model (Dev Rel+ F1={best_dev_f1:.4f}) for final evaluation...")
+        model.load_state_dict(torch.load(best_model_path, map_location=device))
+
     if args.use_caf_loss:
         print("Training complete. Generating abstraction field plot...")
         plot_abstraction_field(model, test_dataset, entity_map, relation_map, tokenizer, device, num_samples=20)
-    
+
     if test_dataset:
         print("\nFinal Test Evaluation:")
         with torch.no_grad():
             p, r, f1, acc, _, pr_stats = train_and_eval(model, test_dataset, entity_map, relation_map, tokenizer, device, separation_loss_weight=args.separation_loss_weight)
-            print(f"Test Set: Macro-F1={f1:.4f}, P={p:.4f}, R={r:.4f}, Acc={acc:.4f}")
+            print(f"Test Set: Rel+ Micro-F1={f1:.4f}, P={p:.4f}, R={r:.4f}, Acc={acc:.4f}")
             df = pd.DataFrame(pr_stats)
             print("\nPer-relation performance:")
             print(df.to_string(index=False) if not df.empty else "No positive relations found")

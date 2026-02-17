@@ -1,3 +1,11 @@
+"""
+SPHERE Knowledge Graph Concept Generation
+==========================================
+Generates a hierarchical CS knowledge graph (L1->L2->L3->L4) using the
+Google Gemini API. Requires a GOOGLE_API_KEY in a .env file.
+
+Dependencies: google-generativeai, python-dotenv, tqdm
+"""
 import google.generativeai as genai
 import json
 import os

@@ -1,3 +1,12 @@
+"""
+SPHERE Sentence Generation & Annotation Engine
+===============================================
+Generates annotated scientific sentences for the SPHERE dataset using the
+Google Gemini API. Requires a GOOGLE_API_KEY in a .env file and the
+knowledge graph from generate_concepts.py.
+
+Dependencies: google-generativeai, python-dotenv, tqdm
+"""
 import google.generativeai as genai
 import json
 import time
