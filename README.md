@@ -119,7 +119,7 @@ python RE/proposed_solutions/HA-GNN/ha-gnn.py \
 
 ## SPHERE Dataset
 
-SPHERE (**S**cientific **P**aper **H**ierarchical **E**ntity and **R**elation **E**xtraction) is an LLM-generated multi-domain benchmark covering Computer Science, Physics, Biology, and Material Science. It provides hierarchical entity and relation annotations designed to test models on cross-domain scientific KG construction. See `dataset_generation/` for the generation pipeline.
+SPHERE (**S**cientific Multidomain Large **E**ntity and **R**elation **E**xtraction) is an LLM-generated multi-domain benchmark covering Computer Science, Physics, Biology, and Material Science. It provides hierarchical entity and relation annotations designed to test models on cross-domain scientific KG construction. See `dataset_generation/` for the generation pipeline.
 
 ## Evaluation Metrics
 
