@@ -1,0 +1,11 @@
+__pycache__/
+
+# Generated SPHERE merged split files are too large for regular GitHub storage.
+# Regenerate them with:
+#   python datasets/SPHERE/prepare_sphere.py --merge_all --convert_to_scierc
+datasets/SPHERE/merged/train.json
+datasets/SPHERE/merged/dev.json
+datasets/SPHERE/merged/test.json
+datasets/SPHERE/merged/train.jsonl
+datasets/SPHERE/merged/dev.jsonl
+datasets/SPHERE/merged/test.jsonl

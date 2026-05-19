@@ -1,0 +1,390 @@
+{
+  "input": {
+    "entities": 1775193,
+    "relations": 415755,
+    "sentences": 797113
+  },
+  "output": {
+    "entities": 1773514,
+    "relations": 409443,
+    "sentences": 797113
+  },
+  "dropped_sentences": {},
+  "dropped_entities": {
+    "bad_span_shape": 1,
+    "duplicate_entity_exact": 1003,
+    "empty_or_relation_type_label": 33,
+    "overlap_span": 642
+  },
+  "dropped_relations": {
+    "ambiguous_entity_id": 447,
+    "duplicate_relation": 110,
+    "references_removed_entity": 304,
+    "self_relation": 5451
+  },
+  "warnings": {
+    "ambiguous_entity_id": 1150,
+    "span_name_mismatch": 49290
+  },
+  "scierc_conversion_skipped": {
+    "token_overlap_entities": 25,
+    "token_overlap_relations": 17
+  },
+  "source": "cleaned",
+  "domains": {
+    "biology": {
+      "input": {
+        "entities": 470784,
+        "relations": 73213,
+        "sentences": 218318
+      },
+      "output": {
+        "entities": 470159,
+        "relations": 69325,
+        "sentences": 218318
+      },
+      "dropped_sentences": {},
+      "dropped_entities": {
+        "duplicate_entity_exact": 446,
+        "empty_or_relation_type_label": 6,
+        "overlap_span": 173
+      },
+      "dropped_relations": {
+        "ambiguous_entity_id": 58,
+        "duplicate_relation": 11,
+        "references_removed_entity": 63,
+        "self_relation": 3756
+      },
+      "warnings": {
+        "ambiguous_entity_id": 247,
+        "span_name_mismatch": 5041
+      },
+      "scierc_conversion_skipped": {}
+    },
+    "computer science": {
+      "input": {
+        "entities": 452990,
+        "relations": 75048,
+        "sentences": 219351
+      },
+      "output": {
+        "entities": 452917,
+        "relations": 74696,
+        "sentences": 219351
+      },
+      "dropped_sentences": {},
+      "dropped_entities": {
+        "duplicate_entity_exact": 35,
+        "overlap_span": 38
+      },
+      "dropped_relations": {
+        "ambiguous_entity_id": 1,
+        "duplicate_relation": 50,
+        "references_removed_entity": 13,
+        "self_relation": 288
+      },
+      "warnings": {
+        "ambiguous_entity_id": 30,
+        "span_name_mismatch": 1364
+      },
+      "scierc_conversion_skipped": {}
+    },
+    "material science": {
+      "input": {
+        "entities": 387363,
+        "relations": 169601,
+        "sentences": 143038
+      },
+      "output": {
+        "entities": 386836,
+        "relations": 168793,
+        "sentences": 143038
+      },
+      "dropped_sentences": {},
+      "dropped_entities": {
+        "duplicate_entity_exact": 245,
+        "empty_or_relation_type_label": 25,
+        "overlap_span": 257
+      },
+      "dropped_relations": {
+        "ambiguous_entity_id": 316,
+        "duplicate_relation": 46,
+        "references_removed_entity": 167,
+        "self_relation": 279
+      },
+      "warnings": {
+        "ambiguous_entity_id": 691,
+        "span_name_mismatch": 3138
+      },
+      "scierc_conversion_skipped": {}
+    },
+    "physics": {
+      "input": {
+        "entities": 464056,
+        "relations": 97893,
+        "sentences": 216406
+      },
+      "output": {
+        "entities": 463602,
+        "relations": 96629,
+        "sentences": 216406
+      },
+      "dropped_sentences": {},
+      "dropped_entities": {
+        "bad_span_shape": 1,
+        "duplicate_entity_exact": 277,
+        "empty_or_relation_type_label": 2,
+        "overlap_span": 174
+      },
+      "dropped_relations": {
+        "ambiguous_entity_id": 72,
+        "duplicate_relation": 3,
+        "references_removed_entity": 61,
+        "self_relation": 1128
+      },
+      "warnings": {
+        "ambiguous_entity_id": 182,
+        "span_name_mismatch": 39747
+      },
+      "scierc_conversion_skipped": {}
+    }
+  },
+  "splits": {
+    "train": {
+      "sentences": 637688,
+      "domains": {
+        "biology": 174654,
+        "computer science": 175480,
+        "material science": 114430,
+        "physics": 173124
+      },
+      "entity_labels": {
+        "Algorithm": 81068,
+        "Alloy": 7252,
+        "Anatomical Structure": 17567,
+        "Application": 1,
+        "Architecture": 14383,
+        "Biological Process": 158316,
+        "Cell": 1675,
+        "Cell Type": 8933,
+        "CharacterizationMethod": 17558,
+        "Compiler": 1614,
+        "Component": 17139,
+        "Composite": 9620,
+        "Concept": 28311,
+        "Condition": 6289,
+        "Constant": 3432,
+        "CrystalStructure": 8417,
+        "Data Structure": 21484,
+        "Database": 558,
+        "Dataset": 5125,
+        "Defect": 8750,
+        "Device": 4992,
+        "DeviceClass": 5,
+        "Disease": 9236,
+        "Ecosystem": 4949,
+        "Effect": 13834,
+        "Equation": 10670,
+        "Experiment": 9483,
+        "Field": 2999,
+        "File System": 235,
+        "Framework": 5408,
+        "Function": 32428,
+        "Gene": 9909,
+        "Hypothesis": 4960,
+        "Law": 4710,
+        "Layer": 2397,
+        "Library": 9877,
+        "Material": 6,
+        "MaterialClass": 53823,
+        "MaterialProperty": 98650,
+        "MedicalCondition": 1,
+        "Methodology": 7748,
+        "Metric": 9051,
+        "Model": 103278,
+        "Molecule": 59392,
+        "Operating System": 580,
+        "Organ": 1414,
+        "Organelle": 6109,
+        "Organism": 7018,
+        "Organization": 2,
+        "Paradigm": 6234,
+        "Particle": 6822,
+        "Pathway": 11355,
+        "Phenomenon": 194492,
+        "Principle": 44689,
+        "ProcessingTechnique": 39122,
+        "Programming Language": 1901,
+        "Protein": 5833,
+        "Protocol": 12517,
+        "Quantity": 71143,
+        "Standard": 3763,
+        "Sub-field": 53063,
+        "Taxonomic Rank": 3086,
+        "Technique": 28729,
+        "Theory": 44535,
+        "Tissue": 733
+      },
+      "relation_labels": {
+        "Dependent-On": 64683,
+        "Part-Of": 9345,
+        "Related-To": 253361
+      }
+    },
+    "dev": {
+      "sentences": 79709,
+      "domains": {
+        "biology": 21831,
+        "computer science": 21935,
+        "material science": 14303,
+        "physics": 21640
+      },
+      "entity_labels": {
+        "Algorithm": 10206,
+        "Alloy": 915,
+        "Anatomical Structure": 2254,
+        "Architecture": 1834,
+        "Biological Process": 19592,
+        "Cell": 210,
+        "Cell Type": 1090,
+        "CharacterizationMethod": 2219,
+        "Compiler": 183,
+        "Component": 2139,
+        "Composite": 1128,
+        "Concept": 3594,
+        "Condition": 800,
+        "Constant": 431,
+        "CrystalStructure": 971,
+        "Data Structure": 2728,
+        "Database": 74,
+        "Dataset": 632,
+        "Defect": 1073,
+        "Device": 630,
+        "Disease": 1151,
+        "Ecosystem": 630,
+        "Effect": 1712,
+        "Equation": 1332,
+        "Experiment": 1161,
+        "Field": 375,
+        "File System": 28,
+        "Framework": 637,
+        "Function": 4015,
+        "Gene": 1262,
+        "High-Entropy Alloys": 1,
+        "Hypothesis": 671,
+        "Law": 582,
+        "Layer": 303,
+        "Library": 1254,
+        "Material": 2,
+        "MaterialClass": 6768,
+        "MaterialProperty": 12441,
+        "Methodology": 953,
+        "Metric": 1179,
+        "Model": 13048,
+        "Molecule": 7481,
+        "Operating System": 79,
+        "Organ": 170,
+        "Organelle": 775,
+        "Organism": 870,
+        "Paradigm": 801,
+        "Particle": 826,
+        "Pathway": 1411,
+        "Phenomenon": 24553,
+        "Principle": 5514,
+        "ProcessingTechnique": 4979,
+        "Programming Language": 220,
+        "Protein": 766,
+        "Protocol": 1505,
+        "Quantity": 8726,
+        "Standard": 466,
+        "Sub-field": 6555,
+        "Taxonomic Rank": 390,
+        "Technique": 3631,
+        "Theory": 5477,
+        "Tissue": 103
+      },
+      "relation_labels": {
+        "Dependent-On": 8157,
+        "Part-Of": 1139,
+        "Related-To": 31873
+      }
+    },
+    "test": {
+      "sentences": 79716,
+      "domains": {
+        "biology": 21833,
+        "computer science": 21936,
+        "material science": 14305,
+        "physics": 21642
+      },
+      "entity_labels": {
+        "Algorithm": 10117,
+        "Alloy": 902,
+        "Anatomical Structure": 2238,
+        "Architecture": 1860,
+        "Biological Process": 19607,
+        "Cell": 198,
+        "Cell Biology": 1,
+        "Cell Type": 1094,
+        "CharacterizationMethod": 2168,
+        "Compiler": 220,
+        "Component": 2084,
+        "Composite": 1192,
+        "Concept": 3591,
+        "Condition": 721,
+        "Constant": 462,
+        "CrystalStructure": 1115,
+        "Data Structure": 2748,
+        "Database": 61,
+        "Dataset": 621,
+        "Defect": 1044,
+        "Device": 637,
+        "Disease": 1171,
+        "Ecosystem": 625,
+        "Effect": 1735,
+        "Equation": 1373,
+        "Experiment": 1202,
+        "Field": 416,
+        "File System": 23,
+        "Framework": 690,
+        "Function": 4125,
+        "Gene": 1222,
+        "Hypothesis": 621,
+        "Law": 549,
+        "Layer": 293,
+        "Library": 1230,
+        "MaterialClass": 6707,
+        "MaterialProperty": 12150,
+        "Methodology": 954,
+        "Metric": 1116,
+        "Model": 12869,
+        "Molecule": 7458,
+        "Operating System": 73,
+        "Organ": 187,
+        "Organelle": 795,
+        "Organism": 877,
+        "Paradigm": 736,
+        "Particle": 864,
+        "Pathway": 1471,
+        "Phenomenon": 24117,
+        "Principle": 5562,
+        "ProcessingTechnique": 5078,
+        "Programming Language": 245,
+        "Protein": 757,
+        "Protocol": 1591,
+        "Quantity": 9038,
+        "Standard": 434,
+        "Sub-field": 6657,
+        "Taxonomic Rank": 415,
+        "Technique": 3480,
+        "Theory": 5645,
+        "Tissue": 103
+      },
+      "relation_labels": {
+        "Dependent-On": 7978,
+        "Part-Of": 1218,
+        "Related-To": 31689
+      }
+    }
+  }
+}

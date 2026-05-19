@@ -40,6 +40,9 @@ MODEL_NAME = "allenai/scibert_scivocab_uncased"
 FINAL_MODEL_SAVE_PATH = "z_nerd_tagger_scierc_model.pth"
 PLOT_SAVE_PATH = "divergent_vector_norms_plot_scierc.png"
 PICKLE_SAVE_PATH = "divergent_vector_norms_data_scierc.pkl"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..', '..', '..'))
+DEFAULT_DATA_DIR = os.path.join(REPO_ROOT, 'datasets', 'SPHERE', 'merged')
 
 # --- Training Hyperparameters ---
 EPOCHS = 10
@@ -216,9 +219,8 @@ class ZNERD_Tagger_Model(nn.Module):
 # ======================================================================================
 def load_and_convert_scierc(file_path):
     """
-    Loads a SciERC dataset file and converts it.
-    This FINAL version correctly handles DOCUMENT-LEVEL entity indexing
-    by calculating a running token offset.
+    Loads a SciERC-style dataset file and converts it to sentence-level NER
+    samples with character spans. SciERC token spans are inclusive.
     """
     print(f"Loading and converting SciERC data from: {file_path}")
     converted_data = []
@@ -227,8 +229,6 @@ def load_and_convert_scierc(file_path):
 
     for doc in tqdm(scierc_docs, desc="Converting documents"):
         token_offset = 0
-        # NEW: Flatten all entity annotations for the document into a single list.
-        all_doc_entities = [entity for sent_ner in doc['ner'] for entity in sent_ner]
 
         for sent_idx, tokens in enumerate(doc['sentences']):
             # --- Part 1: Reconstruct sentence and find character offsets ---
@@ -246,28 +246,31 @@ def load_and_convert_scierc(file_path):
 
             # --- Part 2: Find entities that belong to this sentence and convert their indices ---
             entities_in_this_sentence = []
-            for entity in all_doc_entities:
-                global_start_idx, global_end_idx, entity_type = entity
+            sent_ner = doc.get('ner', [[]])[sent_idx] if sent_idx < len(doc.get('ner', [])) else []
+            for entity in sent_ner:
+                if len(entity) < 3:
+                    continue
+                start_idx, end_idx, entity_type = entity
 
-                # Check if the entity's start index falls within the current sentence's global range
-                if sent_global_start <= global_start_idx < sent_global_end:
-                    # Convert document-level indices to local, sentence-level indices
-                    local_start_idx = global_start_idx - token_offset
-                    local_end_idx = global_end_idx - token_offset
+                # Some SciERC variants store document-level indices; the merged
+                # SPHERE data stores single-sentence local indices. Support both.
+                if 0 <= start_idx <= end_idx < current_sent_len:
+                    local_start_idx = start_idx
+                    local_end_idx = end_idx
+                elif sent_global_start <= start_idx <= end_idx < sent_global_end:
+                    local_start_idx = start_idx - token_offset
+                    local_end_idx = end_idx - token_offset
+                else:
+                    print(f"\nWarning: Skipping entity with out-of-bounds token span [{start_idx}, {end_idx}] for sentence with {current_sent_len} tokens.")
+                    continue
 
-                    # Robustness check on the NEW local indices
-                    if local_start_idx >= current_sent_len or local_end_idx > current_sent_len:
-                        print(f"\n⚠️ Warning: Skipping entity post-conversion. Local indices [{local_start_idx}, {local_end_idx}] are out of bounds for sentence with {current_sent_len} tokens.")
-                        continue
+                char_start = token_char_starts[local_start_idx]
+                char_end = token_char_starts[local_end_idx] + len(tokens[local_end_idx])
 
-                    # Convert local token indices to character spans
-                    char_start = token_char_starts[local_start_idx]
-                    char_end = token_char_starts[local_end_idx - 1] + len(tokens[local_end_idx - 1])
-                    
-                    entities_in_this_sentence.append({
-                        "span": [char_start, char_end],
-                        "type": entity_type
-                    })
+                entities_in_this_sentence.append({
+                    "span": [char_start, char_end],
+                    "type": entity_type
+                })
 
             converted_data.append({
                 "text": text,
@@ -286,6 +289,31 @@ def get_entity_types_from_data(data_samples):
         for entity in sample.get('entities', []):
             entity_types.add(entity['type'])
     return sorted(list(entity_types))
+
+def get_entity_types_from_label_maps(data_dir):
+    label_maps_path = os.path.join(data_dir, 'label_maps.json')
+    if not os.path.exists(label_maps_path):
+        return None
+    with open(label_maps_path, 'r', encoding='utf-8') as f:
+        label_maps = json.load(f)
+    if 'entity_types' in label_maps:
+        return sorted(label_maps['entity_types'])
+    if 'entity_map' in label_maps:
+        return sorted(label_maps['entity_map'].keys())
+    return None
+
+def maybe_limit(data, limit):
+    if limit is None or limit <= 0:
+        return data
+    return data[:limit]
+
+def set_output_paths(output_prefix):
+    global FINAL_MODEL_SAVE_PATH, PLOT_SAVE_PATH, PICKLE_SAVE_PATH
+    if not output_prefix:
+        return
+    FINAL_MODEL_SAVE_PATH = f"{output_prefix}_model.pth"
+    PLOT_SAVE_PATH = f"{output_prefix}_divergent_vector_norms.png"
+    PICKLE_SAVE_PATH = f"{output_prefix}_divergent_vector_norms.pkl"
 
 # ======================================================================================
 # SECTION 2: CUSTOM DATA PIPELINE
@@ -515,9 +543,20 @@ def evaluate(model, data_loader, id_to_tag, device, is_final_test=False):
 # SECTION 4: MAIN EXECUTION BLOCK
 # ======================================================================================
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run Z-NERD Tagger on the SciER dataset.")
-    parser.add_argument('--data_dir', type=str, default='../../../datasets/SciER/', help='Directory containing train.json, dev.json, and test.json.')
+    parser = argparse.ArgumentParser(description="Run Z-NERD Tagger on a SciERC-style dataset.")
+    parser.add_argument('--data_dir', type=str, default=DEFAULT_DATA_DIR, help='Directory containing train.json, dev.json, test.json, and optionally label_maps.json.')
+    parser.add_argument('--epochs', type=int, default=EPOCHS, help='Training epochs')
+    parser.add_argument('--batch_size', type=int, default=BATCH_SIZE, help='Batch size')
+    parser.add_argument('--max_len', type=int, default=MAX_LEN, help='Maximum tokenized sequence length')
+    parser.add_argument('--output_prefix', type=str, default='z_nerd_sphere', help='Prefix for model, plot, and pickle outputs')
+    parser.add_argument('--max_train_samples', type=int, default=None, help='Limit training sentences for smoke tests')
+    parser.add_argument('--max_eval_samples', type=int, default=None, help='Limit dev/test sentences for smoke tests')
     args = parser.parse_args()
+
+    EPOCHS = args.epochs
+    BATCH_SIZE = args.batch_size
+    MAX_LEN = args.max_len
+    set_output_paths(args.output_prefix)
 
     train_path = os.path.join(args.data_dir, 'train.json')
     dev_path = os.path.join(args.data_dir, 'dev.json')
@@ -525,17 +564,19 @@ if __name__ == "__main__":
 
     if not all(os.path.exists(p) for p in [train_path, dev_path, test_path]):
         print("❌ Error: Not all SciERC files (train.json, dev.json, test.json) found in the specified data directory.")
-        print("Please download the dataset from https://github.com/allenai/scierc and place the files in the correct directory.")
+        print("Run: python datasets/SPHERE/prepare_sphere.py --merge_all --convert_to_scierc")
         exit()
 
-    # MODIFIED: Load data using the new converter
-    train_set = load_and_convert_scierc(train_path)
-    val_set = load_and_convert_scierc(dev_path)
-    test_set = load_and_convert_scierc(test_path)
+    train_set = maybe_limit(load_and_convert_scierc(train_path), args.max_train_samples)
+    val_set = maybe_limit(load_and_convert_scierc(dev_path), args.max_eval_samples)
+    test_set = maybe_limit(load_and_convert_scierc(test_path), args.max_eval_samples)
     
-    # MODIFIED: Get entity types directly from training data
-    concept_types = get_entity_types_from_data(train_set)
-    print(f"\nFound {len(concept_types)} unique entity types in SciERC: {concept_types}")
+    concept_types = get_entity_types_from_label_maps(args.data_dir)
+    if concept_types is None:
+        concept_types = get_entity_types_from_data(train_set)
+        print(f"\nFound {len(concept_types)} unique entity types from training data: {concept_types}")
+    else:
+        print(f"\nLoaded {len(concept_types)} entity types from label_maps.json: {concept_types}")
 
     tag_to_id, id_to_tag = create_custom_label_maps(concept_types)
     num_labels = len(tag_to_id)

@@ -27,11 +27,17 @@ random.seed(SEED)
 if torch.cuda.is_available():
     torch.cuda.manual_seed_all(SEED)
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..', '..', '..'))
+DEFAULT_DATA_DIR = os.path.join(REPO_ROOT, 'datasets', 'SPHERE', 'merged')
+
 # --- Data Loading and Preprocessing ---
 class SciERDataset(Dataset):
-    def __init__(self, file_path):
+    def __init__(self, file_path, max_samples=None):
         with open(file_path, 'r', encoding='utf-8') as f:
             self.data = json.load(f)
+        if max_samples is not None and max_samples > 0:
+            self.data = self.data[:max_samples]
 
     def __len__(self):
         return len(self.data)
@@ -50,6 +56,31 @@ def get_label_maps(data_samples):
                 relation_types.add(relation[4])
     entity_map = {label: i for i, label in enumerate(sorted(list(entity_types)))}
     relation_map = {label: i for i, label in enumerate(sorted(list(relation_types)))}
+    return entity_map, relation_map
+
+def get_label_maps_from_file(data_dir):
+    label_maps_path = os.path.join(data_dir, 'label_maps.json')
+    if not os.path.exists(label_maps_path):
+        return None
+    with open(label_maps_path, 'r', encoding='utf-8') as f:
+        label_maps = json.load(f)
+
+    if 'entity_map' in label_maps:
+        entity_map = {label: int(idx) for label, idx in label_maps['entity_map'].items()}
+    else:
+        entity_types = label_maps.get('entity_types', [])
+        entity_map = {label: i for i, label in enumerate(sorted(entity_types))}
+
+    if 'relation_map' in label_maps:
+        relation_map = {label: int(idx) for label, idx in label_maps['relation_map'].items()}
+    else:
+        relation_types = set(label_maps.get('relation_types', []))
+        relation_types.add("No-Relation")
+        relation_map = {label: i for i, label in enumerate(sorted(relation_types))}
+
+    if "No-Relation" not in relation_map:
+        relation_map["No-Relation"] = len(relation_map)
+
     return entity_map, relation_map
 
 # --- Graph Construction ---
@@ -762,7 +793,7 @@ def plot_abstraction_field(model, dataset, entity_map, relation_map, tokenizer, 
 # --- Main Execution Block ---
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Hierarchical DHGNN for scientific relation extraction")
-    parser.add_argument('--data_dir', type=str, default='../../../datasets/SciER/', help='Directory for dataset files')
+    parser.add_argument('--data_dir', type=str, default=DEFAULT_DATA_DIR, help='Directory for dataset files')
     parser.add_argument('--train_file', type=str, default='train.json', help='Training data file')
     parser.add_argument('--dev_file', type=str, default='dev.json', help='Development data file')
     parser.add_argument('--test_file', type=str, default='test.json', help='Test data file')
@@ -783,6 +814,8 @@ if __name__ == '__main__':
     parser.add_argument('--use_separation_loss', action='store_true', help='Enable hierarchical separation loss')
     parser.add_argument('--separation_loss_weight', type=float, default=0.0, help='Weight for separation loss')
     parser.add_argument('--grad_accum_steps', type=int, default=8, help='Gradient accumulation steps (Paper Table 5: effective batch=8)')
+    parser.add_argument('--max_train_samples', type=int, default=None, help='Limit training documents for smoke tests')
+    parser.add_argument('--max_eval_samples', type=int, default=None, help='Limit dev/test documents for smoke tests')
     args = parser.parse_args()
 
     # Paper Table 5: DHL weights (λ_acyclic=1.0, λ_separation=0.1), CAF weights (γ=1.0, λ_caf=0.5)
@@ -801,12 +834,17 @@ if __name__ == '__main__':
     train_path, dev_path, test_path = os.path.join(args.data_dir, args.train_file), os.path.join(args.data_dir, args.dev_file), os.path.join(args.data_dir, args.test_file)
 
     print("Loading datasets...")
-    train_dataset = SciERDataset(train_path)
-    dev_dataset = SciERDataset(dev_path) if os.path.exists(dev_path) else None
-    test_dataset = SciERDataset(test_path) if os.path.exists(test_path) else None
+    train_dataset = SciERDataset(train_path, max_samples=args.max_train_samples)
+    dev_dataset = SciERDataset(dev_path, max_samples=args.max_eval_samples) if os.path.exists(dev_path) else None
+    test_dataset = SciERDataset(test_path, max_samples=args.max_eval_samples) if os.path.exists(test_path) else None
 
     print("Creating label maps...")
-    entity_map, relation_map = get_label_maps(train_dataset.data)
+    label_maps = get_label_maps_from_file(args.data_dir)
+    if label_maps is not None:
+        entity_map, relation_map = label_maps
+        print("Loaded label maps from label_maps.json")
+    else:
+        entity_map, relation_map = get_label_maps(train_dataset.data)
     rev_relation_map = {v: k for k, v in relation_map.items()}
     print(f"Found {len(entity_map)} entity types and {len(relation_map)} relation types")
     print(f"Relation types: {list(relation_map.keys())}")
