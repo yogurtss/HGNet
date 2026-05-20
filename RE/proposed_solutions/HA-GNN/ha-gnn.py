@@ -349,7 +349,7 @@ class HeteroGNNLayer(nn.Module):
     def __init__(self, hidden_dim, edge_types):
         super().__init__()
         self.convs = nn.ModuleDict({str(et): GATConv((-1, -1), hidden_dim, add_self_loops=False) for et in edge_types})
-        self.bns = nn.ModuleDict({ntype: nn.BatchNorm1d(hidden_dim) for ntype in ['token', 'entity', 'sentence']})
+        self.norms = nn.ModuleDict({ntype: nn.LayerNorm(hidden_dim) for ntype in ['token', 'entity', 'sentence']})
 
     def forward(self, x_dict, edge_index_dict):
         out_dict = {}
@@ -361,7 +361,7 @@ class HeteroGNNLayer(nn.Module):
             out_dict[dst_type] = out + out_dict.get(dst_type, 0)
         for ntype, x in out_dict.items():
             if x_dict[ntype].size(0) > 0 and x.size(0) > 0:
-                x_dict[ntype] = self.bns[ntype](x) + x_dict[ntype]
+                x_dict[ntype] = self.norms[ntype](x) + x_dict[ntype]
         return x_dict
 
 class LatentRelationPredictor(nn.Module):
